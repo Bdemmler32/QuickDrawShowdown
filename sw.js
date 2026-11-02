@@ -1,6 +1,6 @@
 /* Quick Draw Showdown service worker.
    Bump VERSION together with APP_VERSION in index.html to ship a release. */
-const VERSION = '0.01';
+const VERSION = '0.02';
 const APP = 'quickdraw';
 const SHELL_CACHE = `${APP}-${VERSION}`;
 const CDN_CACHE = `${APP}-cdn`;      // pinned libraries: kept across versions

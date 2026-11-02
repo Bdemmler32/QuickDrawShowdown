@@ -1,4 +1,4 @@
-# Quick Draw Showdown — v0.01
+# Quick Draw Showdown — v0.02
 
 A two-player Wild West quick-draw duel for one phone or tablet, packaged as an installable Progressive Web App (PWA). It is all static files. Every path is relative, so the folder works from a domain root or any subfolder (for example `https://example.com/games/quickdraw/`).
 
@@ -48,6 +48,10 @@ Opening `index.html` straight from disk (`file://`) still plays the game, but wi
 1. Open the URL.
 2. Click the install icon at the right end of the address bar, or open **⋮**, then **Cast, save and share**, then **Install page as app**.
 3. The game opens in its own window. On a desktop, the A key controls the top player and the L key the bottom player.
+
+## Sound on iPhone and iPad
+
+iOS only lets a page start audio once a finger lifts off the screen, so sound switches on at the end of the first tap anywhere. On iOS 17 and later the game plays sound even when the ring/silent switch is set to silent, like most games. To silence it, use the speaker button in the game or **Sound** in the menu. On older iOS versions the silent switch also mutes the game.
 
 ## Shipping an update
 

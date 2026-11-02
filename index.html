@@ -90,11 +90,11 @@ body{
 .btn.gold{--bg:#e9a32c}
 .btn.wood{--bg:#8a5a30}
 .badge{
-  position:absolute;left:calc(12px + max(var(--sal),var(--sar)));bottom:calc(12px + var(--safe,0px));display:flex;flex-direction:column;align-items:flex-start;gap:calc(var(--px) * 1.6);
+  position:absolute;left:calc(12px + max(var(--sal),var(--sar)));bottom:calc(8px + var(--safe,0px));display:flex;flex-direction:column;align-items:flex-start;gap:calc(var(--px) * 1.6);
   background:var(--plaque);padding:calc(var(--px) * 2) calc(var(--px) * 2.6);
   box-shadow:0 calc(var(--px) * -1) 0 0 var(--acc),0 var(--px) 0 0 var(--acc),calc(var(--px) * -1) 0 0 0 var(--acc),var(--px) 0 0 0 var(--acc);
 }
-.side.p0 .badge{--safe:var(--sab)}
+.side.p0 .badge{--safe:calc(var(--sab) * .35)}
 .side.p1 .badge{--safe:var(--sat)}
 .badge .slot{justify-content:flex-start}
 .pips{display:flex;gap:calc(var(--px) * 1.3)}
@@ -221,14 +221,16 @@ body{
 'use strict';
 
 /* ================= constants ================= */
-const APP_VERSION = '0.01';      // keep in step with VERSION in sw.js
+const APP_VERSION = '0.02';
+const BOTTOM_INSET_SHARE = .35;   // share of the bottom safe-area inset kept clear (home indicator)      // keep in step with VERSION in sw.js
 const K = 0.56, V = 0.84;        // projection: ground depth and height
 const TIE_MS = 20, NO_SHOT_MS = 5000, LOCK_MS = 1150;
 const stage = document.getElementById('stage');
 const cv = document.getElementById('scene');
 const ctx = cv.getContext('2d');
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-let W = 390, H = 844, DPR = 1, S = 4, FY = 200, CX = 195, ZONE = 160;
+let W = 390, H = 844, DPR = 1, S = 4, CX = 195, ZONE = 160;
+const FYP = [200, 200];   // foot line per player, measured from that player's own screen edge
 const MET = {};
 const rand = (a,b) => a + Math.random()*(b-a);
 const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
@@ -860,7 +862,7 @@ function bakeHalf(p){
     g.fillStyle = R() < .5 ? 'rgba(150,88,30,.13)' : 'rgba(255,240,205,.18)';
     for (let j=0;j<n;j++){ const x = bx + ((R()*5)|0) - 2, y = by + ((R()*3)|0) - 1; g.fillRect(Math.round(x*sd), Math.round(y*K*sd), Math.ceil(sd), Math.ceil(K*sd)); }
   }
-  const fyU = FY/(K*S); let sf = 1;
+  const fyU = FYP[p]/(K*S); let sf = 1;
   for (let y = fyU + 7; y < Hu - 3; y += 5){
     const x = Math.round(W/S/2 + sf*2.4 + (R() - .5)*1.2);
     g.fillStyle = 'rgba(120,66,18,.2)'; g.fillRect(Math.round((x-1)*sd), Math.round(y*K*sd), Math.round(2*sd), Math.round(3*K*sd));
@@ -958,7 +960,7 @@ function muzzleLocal(P){
 function hopZ(ch, now){ let z = 0; for (const o of ch.hops){ const u = (now - o.t)/o.dur; if (u > 0 && u < 1) z += o.amp*4*u*(1-u); } return z; }
 /* local half coordinates -> global screen. The top half (p=1) is drawn as-is; the bottom half (p=0) is the same view turned 180deg. */
 function toG(p, x, y){ return p === 1 ? {x, y} : {x: W - x, y: H - y}; }
-function L2G(p, x, y, z){ return toG(p, CX + x*S, FY + y*K*S - z*V*S); }
+function L2G(p, x, y, z){ return toG(p, CX + x*S, FYP[p] + y*K*S - z*V*S); }
 
 /* ================= effects ================= */
 const FX = [];
@@ -1043,7 +1045,7 @@ function kill(ch, now){
 
 /* ================= sound (synthesised in the page) ================= */
 const Sound = {
-  ac:null, out:null, nb:null, muted:false,
+  ac:null, out:null, nb:null, muted:false, primed:false,
   unlock(){
     try{
       if (!this.ac){
@@ -1056,7 +1058,15 @@ const Sound = {
         for (let i=0;i<n;i++) d[i] = Math.random()*2 - 1;
         this.nb = buf;
       }
-      if (this.ac.state === 'suspended') this.ac.resume().catch(()=>{});
+      // iOS 17+: let game sound play even when the ring/silent switch is on (the in-game toggle still mutes).
+      try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; } catch(e){}
+      if (this.ac.state !== 'running') this.ac.resume().catch(()=>{});   // 'suspended' or iOS 'interrupted'
+      if (!this.primed){
+        // A silent one-sample buffer started inside the gesture fully unlocks older iOS Safari.
+        const b = this.ac.createBuffer(1, 1, 22050), src = this.ac.createBufferSource();
+        src.buffer = b; src.connect(this.ac.destination); src.start(0);
+        if (this.ac.state === 'running') this.primed = true;
+      }
     } catch(e){}
   },
   ok(){ return this.ac && !this.muted && this.ac.state === 'running'; },
@@ -1427,6 +1437,12 @@ window.addEventListener('pagehide', interrupt);
 stage.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('gesturestart', e => e.preventDefault());
 try { Sound.muted = localStorage.getItem('quickdraw-muted') === '1'; } catch(e){}
+/* iOS only treats touchend / click / keydown as permission to start audio (touchstart and pointerdown
+   don't count), so unlock on those too until the context is actually running. */
+for (const ev of ['touchend','pointerup','click','keydown']){
+  document.addEventListener(ev, () => { if (!Sound.ac || Sound.ac.state !== 'running' || !Sound.primed) Sound.unlock(); }, {capture:true, passive:true});
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Sound.ac && Sound.ac.state !== 'running') Sound.ac.resume().catch(()=>{}); });
 
 /* ================= layout ================= */
 const probe = document.createElement('div');
@@ -1442,7 +1458,9 @@ function sizeApp(){
     w = land ? Math.max(a,b) : Math.min(a,b);
     h = land ? Math.min(a,b) : Math.max(a,b);
   }
+  else h = Math.max(h, document.documentElement.clientHeight || 0);
   appEl.style.width = w + 'px'; appEl.style.height = h + 'px';
+  document.documentElement.style.height = h + 'px'; document.body.style.height = h + 'px';
   stage.style.width = Math.min(w, Math.round(h*.72)) + 'px';
 }
 function layout(){
@@ -1452,10 +1470,14 @@ function layout(){
   DPR = Math.min(2, window.devicePixelRatio || 1);
   cv.width = Math.round(W*DPR); cv.height = Math.round(H*DPR);
   S = Math.max(2.4, Math.min(H*.0052, W*.0125));
-  const cs2 = getComputedStyle(probe), safe = Math.max(parseFloat(cs2.paddingTop)||0, parseFloat(cs2.paddingBottom)||0);
-  const m = Math.max(10, H*.028);
-  CX = W/2; FY = m + safe + 41.5*S;
-  ZONE = Math.max(100, H/2 - (FY + 3*S) - 6);
+  const cs2 = getComputedStyle(probe), sT = parseFloat(cs2.paddingTop)||0, sB = parseFloat(cs2.paddingBottom)||0;
+  const m = Math.max(8, H*.02);
+  CX = W/2;
+  // Top edge: clear the status bar / Dynamic Island. Bottom edge: iOS has no nav bar, only the thin
+  // home indicator, so the bottom player keeps just a sliver of it and uses the rest of the screen.
+  FYP[1] = m + sT + 41.5*S;
+  FYP[0] = m + sB*BOTTOM_INSET_SHARE + 41.5*S;
+  ZONE = Math.max(100, Math.min(H/2 - (FYP[0] + 3*S) - 6, H/2 - (FYP[1] + 3*S) - 6));
   const px = Math.max(2, Math.round(Math.min(W*.0085, ZONE*.017)));
   stage.style.setProperty('--zone', ZONE + 'px');
   stage.style.setProperty('--px', px + 'px');
@@ -1479,6 +1501,14 @@ function layout(){
 let resizeT = 0;
 window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(layout, 120); });
 window.addEventListener('orientationchange', () => { interrupt(); setTimeout(layout, 350); });
+let lastSize = '';
+function relayoutIfChanged(){
+  const key = [window.innerWidth, window.innerHeight, document.documentElement.clientHeight].join('x');
+  if (key === lastSize) return; lastSize = key; layout();
+}
+if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(relayoutIfChanged, 150); });
+window.addEventListener('pageshow', () => setTimeout(relayoutIfChanged, 60));
+window.addEventListener('load', () => setTimeout(relayoutIfChanged, 500));
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => layout());
 document.addEventListener('dblclick', e => e.preventDefault(), {passive:false});
 document.addEventListener('touchmove', e => { if (!(e.target.closest && e.target.closest('input,textarea,select'))) e.preventDefault(); }, {passive:false});
@@ -1580,7 +1610,7 @@ function hatPos(ch, now){
 }
 function drawHatLocal(ch, hp){
   const spr = HATSPR[ch.p];
-  const sx = CX + hp.x*S, sy = FY + hp.y*K*S - hp.z*V*S;
+  const FY = FYP[ch.p], sx = CX + hp.x*S, sy = FY + hp.y*K*S - hp.z*V*S;
   ctx.save();
   ctx.translate(snap(sx), snap(sy - 3*V*S));
   if (hp.rot) ctx.rotate(hp.rot);
@@ -1588,7 +1618,7 @@ function drawHatLocal(ch, hp){
   ctx.restore();
 }
 function drawChar(p, now){
-  const ch = CH[p], P = poseOf(ch, now), spr = getSprite(p, P), hz = hopZ(ch, now);
+  const ch = CH[p], P = poseOf(ch, now), spr = getSprite(p, P), hz = hopZ(ch, now), FY = FYP[p];
   ctx.save();
   if (p === 0){ ctx.translate(W, H); ctx.rotate(Math.PI); }
   const bx = snap(CX), by = snap(FY);
@@ -1692,7 +1722,7 @@ function frame(now){
 layout();
 paintStatic();
 requestAnimationFrame(frame);
-window.__qd = {G, CH, SPR, APP_VERSION, art:{charModel, spriteOf, LOOK, VK, unVK}};
+window.__qd = {G, CH, SPR, APP_VERSION, Sound, FYP, art:{charModel, spriteOf, LOOK, VK, unVK}};
 })();
 </script>
 </body>
